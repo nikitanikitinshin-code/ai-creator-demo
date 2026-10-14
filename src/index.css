@@ -1,0 +1,45 @@
+@import '@fontsource-variable/inter/wght.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-white font-sans text-slate-900 antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgb(196 181 253 / 0.5); }
+}
+
+@layer components {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgb(99 102 241 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(99 102 241 / 0.06) 1px, transparent 1px);
+    background-size: 36px 36px;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 10%, transparent 75%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 10%, transparent 75%);
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-violet-600 px-5 py-3 text-[15px] font-semibold text-white transition hover:bg-violet-700 active:scale-[0.98] disabled:opacity-60;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98];
+  }
+}
+
+.shimmer {
+  background: linear-gradient(110deg, #f1f5f9 30%, #ede9fe 50%, #f1f5f9 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+.caret::after { content: ''; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -0.15em; background: #7c3aed; animation: blink 0.9s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.pb-safe { padding-bottom: max(0.625rem, env(safe-area-inset-bottom)); }
+@layer components {
+  .chip { @apply inline-flex items-center rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-1.5 text-[13.5px] leading-tight text-slate-600 transition duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.98]; }
+}
