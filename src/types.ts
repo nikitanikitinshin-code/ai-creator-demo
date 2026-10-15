@@ -58,6 +58,14 @@ export interface LessonSummary {
   edits: number
   firstIdea: string
   promptWords: number
+  stickers?: Sticker[]
+}
+
+/** Категория детали: определяет цвет стикера и подсказывает, к какой части запроса она относится. */
+export type StickerCat = 'who' | 'color' | 'material' | 'head' | 'extra' | 'style'
+export interface Sticker {
+  t: string
+  c: StickerCat
 }
 
 export interface Chip {
@@ -85,9 +93,10 @@ export type Msg =
   | (Base & { role: 'ai'; type: 'text'; text: string; animate?: boolean; prompt?: string })
   | (Base & { role: 'user'; type: 'text'; text: string })
   | (Base & { role: 'ai'; type: 'loading'; variant?: 'demo' | 'ai' | 'edit' })
-  | (Base & { role: 'ai'; type: 'image'; image: HeroImage; name?: string; prompt: string; tags?: string[] })
+  | (Base & { role: 'ai'; type: 'image'; image: HeroImage; name?: string; prompt: string; tags?: string[]; stickers?: Sticker[] })
   | (Base & { role: 'ai'; type: 'herocard'; image: HeroImage })
   | (Base & { role: 'ai'; type: 'learned'; summary: LessonSummary })
+  | (Base & { role: 'ai'; type: 'storyboard'; image: HeroImage })
   | (Base & { role: 'ai'; type: 'upsell' })
   | (Base & { role: 'ai'; type: 'parentcta' })
 

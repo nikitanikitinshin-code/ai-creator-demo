@@ -6,7 +6,10 @@ import { Composer } from './components/Composer'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ParentSheet } from './components/ParentSheet'
 import { AboutModal } from './components/AboutModal'
-import { AiText, HeroSummary, ImageBlock, LearnedCard, Loading, ParentCta, Typing, UpsellCard, UserBubble } from './components/Messages'
+import { AiText, HeroSummary, ImageBlock, LearnedCard, Loading, ParentCta, Storyboard, Typing, UpsellCard, UserBubble } from './components/Messages'
+import { SlotBar } from './components/SlotBar'
+import { IdeaDemo } from './components/IdeaDemo'
+import { contributionStickers } from './lib/dialog'
 import { Lightbox } from './components/Lightbox'
 import { checkText } from '../server/safety'
 import { track } from './lib/analytics'
@@ -138,7 +141,7 @@ export default function App() {
               Придумай своего героя, а AI-наставник поможет превратить твою идею в изображение.
             </p>
             <motion.div layoutId="composer" className="mx-auto mt-7 max-w-xl text-left">{composer}</motion.div>
-            <p className={`mx-auto mt-2 max-w-xl px-2 text-center text-[12px] leading-snug ${hint ? 'font-medium text-orange-600' : 'text-slate-400'}`} role={hint ? 'alert' : undefined}>
+            <p className={`mx-auto mt-2 max-w-xl px-2 text-center text-[12px] leading-snug ${hint ? 'font-medium text-orange-600' : 'text-slate-500'}`} role={hint ? 'alert' : undefined}>
               {hint ?? 'Не пиши настоящее имя, адрес и школу: опиши только героя.'}
             </p>
             <div className="mx-auto mt-3 flex max-w-xl flex-wrap justify-center gap-2">
@@ -148,15 +151,16 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <div className="mx-auto mt-5 hidden max-w-md [@media(min-height:900px)]:block"><IdeaDemo /></div>
             <aside className="mx-auto mt-5 max-w-md rounded-2xl bg-slate-50 px-4 py-3 text-left sm:mt-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-[12px] font-bold uppercase tracking-wider text-slate-500">Родителям</h2>
                 <button onClick={openAbout} className="text-[12.5px] font-medium text-violet-700 hover:text-violet-900">Подробнее →</button>
               </div>
               <ul className="mt-1.5 space-y-1.5 text-[13px] leading-snug text-slate-600">
-                <li className="flex gap-2"><Smartphone className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-400" />Передайте устройство ребёнку: он сам опишет героя и получит иллюстрацию.</li>
-                <li className="flex gap-2"><Sparkles className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-400" />Он учится описывать идею, уточнять и улучшать запрос к ИИ.</li>
-                <li className="flex gap-2"><Info className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-400" />{chat.liveMode === 'ai'
+                <li className="flex gap-2"><Smartphone className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-500" />Передайте устройство ребёнку: он сам опишет героя и получит иллюстрацию.</li>
+                <li className="flex gap-2"><Sparkles className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-500" />Он учится описывать идею, уточнять и улучшать запрос к ИИ.</li>
+                <li className="flex gap-2"><Info className="mt-[2px] h-3.5 w-3.5 shrink-0 text-slate-500" />{chat.liveMode === 'ai'
                   ? 'Наставник работает по сценарию, а картинку рисует ИИ-сервис по описанию героя (без личных данных). Без регистрации, история остаётся на этом устройстве.'
                   : chat.liveMode === 'mock'
                     ? 'Тестовый режим: картинки имитируются, ИИ не вызывается. Без регистрации.'
@@ -167,6 +171,7 @@ export default function App() {
         </main>
       ) : (
         <>
+          {inputActive && state.conv.spec.kind && <SlotBar spec={state.conv.spec} />}
           <div
             ref={scroller}
             className="relative flex-1 overflow-y-auto"
@@ -176,16 +181,17 @@ export default function App() {
             }}
           >
             <div className="bg-grid pointer-events-none absolute inset-x-0 top-0 h-64 opacity-70" />
-            <div ref={content} className="relative mx-auto flex max-w-[42rem] flex-col gap-6 px-4 pb-6 pt-3 sm:px-6">
+            <div ref={content} role="log" aria-live="polite" aria-label="Диалог с наставником" className="relative mx-auto flex max-w-[42rem] flex-col gap-6 px-4 pb-6 pt-3 sm:px-6">
               {state.messages.map((m) => {
                 const first = !prevAi
                 prevAi = m.role === 'ai' && m.type === 'text'
                 if (m.role === 'user') { prevAi = false; return <UserBubble key={m.id} text={m.text} /> }
                 switch (m.type) {
                   case 'text': return <AiText key={m.id} m={m} showMark={first} />
-                  case 'loading': return <Loading key={m.id} variant={m.variant} />
+                  case 'loading': return <Loading key={m.id} variant={m.variant} spec={state.conv.spec} />
                   case 'image': return <ImageBlock key={m.id} m={m} />
-                  case 'herocard': return <HeroSummary key={m.id} m={m} name={state.conv.spec.name} onSave={actions.download} />
+                  case 'herocard': return <HeroSummary key={m.id} m={m} name={state.conv.spec.name} stickers={contributionStickers(state.conv.spec)} onSaveCard={actions.downloadCard} onSaveImage={actions.download} />
+                  case 'storyboard': return <Storyboard key={m.id} image={m.image} />
                   case 'learned': return <LearnedCard key={m.id} s={m.summary} />
                   case 'upsell': return <UpsellCard key={m.id} mode={state.stage === 'next_project_offer' ? 'active' : state.stage === 'parent_handoff' || state.stage === 'parent_offer' ? 'done' : 'idle'} onClick={actions.wantCartoon} />
                   case 'parentcta': return <ParentCta key={m.id} active={state.stage === 'parent_handoff'} onOpen={actions.openParents} />
@@ -223,7 +229,7 @@ export default function App() {
         </>
       )}
 
-      <Lightbox open={chat.saveHint} src={heroForParents?.image.src ?? ''} alt="Твой герой" hint="Нажми на картинку и удерживай её, чтобы сохранить" onClose={chat.closeSaveHint} />
+      <Lightbox open={!!chat.saveHint} src={chat.saveHint?.src ?? ''} alt="Твой герой" hint="Нажми на картинку и удерживай её, чтобы сохранить" onClose={chat.closeSaveHint} />
       <AboutModal liveMode={chat.liveMode} open={about} onClose={() => { setAbout(false); setTimeout(() => window.matchMedia('(pointer:fine)').matches && input.current?.focus(), 250) }} />
       <ParentSheet open={chat.parentOpen} onClose={actions.closeParents} hero={heroForParents} summary={learned} onSave={actions.download} />
       <ConfirmDialog

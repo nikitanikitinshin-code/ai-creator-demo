@@ -45,7 +45,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
         aria-label="Отправить"
         onClick={onSend}
         disabled={!canSend}
-        className={`grid shrink-0 place-items-center rounded-full bg-violet-600 text-white transition hover:bg-violet-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 ${large ? 'h-9 w-9' : 'h-9 w-9'}`}
+        className={`grid shrink-0 place-items-center rounded-full bg-violet-600 text-white transition hover:bg-violet-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-500 ${large ? 'h-9 w-9' : 'h-9 w-9'}`}
       >
         <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.6} />
       </button>

@@ -4,6 +4,7 @@ import { ArrowRight, Check, Copy, Download, Minus, X } from 'lucide-react'
 import type { HeroImage, LessonSummary } from '../types'
 import { OFFER, OFFER_PENDING, formatPrice } from '../config/offer'
 import { track } from '../lib/analytics'
+import { StickerPill } from './Stickers'
 
 interface Props {
   open: boolean
@@ -96,7 +97,7 @@ export function ParentSheet({ open, onClose, hero, summary, onSave }: Props) {
             transition={{ duration: 0.22, ease: 'easeOut' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={onClose} aria-label="Закрыть" className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/95 text-slate-400 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-100 hover:text-slate-700">
+            <button onClick={onClose} aria-label="Закрыть" className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-100 hover:text-slate-700">
               <X className="h-5 w-5" />
             </button>
 
@@ -131,9 +132,16 @@ export function ParentSheet({ open, onClose, hero, summary, onSave }: Props) {
                       <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Первый проект ребёнка</p>
                         <p className="truncate font-semibold">{hero.name ?? 'Мой первый AI-герой'}</p>
-                        <p className="text-[12px] leading-tight text-slate-400">Демо-иллюстрация</p>
+                        <p className="text-[12px] leading-tight text-slate-500">{hero.image.mode === 'demo' ? 'Демо-иллюстрация' : hero.image.mock ? 'Тестовая имитация' : 'Создано ИИ'}</p>
                       </div>
                     </div>
+                  )}
+                  {summary?.stickers && summary.stickers.length > 0 && (
+                    <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Что задал ребёнок">
+                      {summary.stickers.map((st) => (
+                        <li key={st.t}><StickerPill s={st} /></li>
+                      ))}
+                    </ul>
                   )}
 
                   {summary && (
@@ -169,7 +177,7 @@ export function ParentSheet({ open, onClose, hero, summary, onSave }: Props) {
                     </div>
                     {COMPARE.map(([k, a, b]) => (
                       <div key={k} className="grid grid-cols-[4.5rem_1fr_1fr] gap-x-2 border-t border-slate-100 px-3 py-2.5">
-                        <span className="text-[12px] text-slate-400">{k}</span>
+                        <span className="text-[12px] text-slate-500">{k}</span>
                         <span className="text-slate-500">{a}</span>
                         <span className="font-medium text-slate-800">{b}</span>
                       </div>
@@ -203,7 +211,7 @@ export function ParentSheet({ open, onClose, hero, summary, onSave }: Props) {
                       <span className="text-[28px] font-extrabold tracking-tight">{formatPrice(OFFER.price)}</span>
                     </div>
                     <p className="mt-3 flex gap-2 text-[12.5px] leading-snug text-slate-500">
-                      <Minus className="mt-[3px] h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={3} />
+                      <Minus className="mt-[3px] h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={3} />
                       {OFFER_PENDING}
                     </p>
                   </section>

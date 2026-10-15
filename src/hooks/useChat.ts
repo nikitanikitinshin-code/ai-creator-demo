@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChatState, FeatureKey, LessonSummary, Msg, Spec, Stage } from '../types'
-import { REVIEW_PROMPT, buildPrompt, chipsFor, contributionTags, newConv, respond, summarize } from '../lib/dialog'
+import { REVIEW_PROMPT, buildPrompt, chipsFor, contributionStickers, contributionTags, newConv, respond, summarize } from '../lib/dialog'
+import { characterCardDataUrl, downloadCharacterCard } from '../lib/characterCard'
 import { isInAppBrowser, track } from '../lib/analytics'
 import { GenerationError, demoProvider, downloadHeroImage, getLiveStatus, liveProvider, newSessionId, pickProvider } from '../lib/imageProvider'
 import { clearState, initialState, loadState, saveState } from '../lib/storage'
@@ -28,7 +29,7 @@ export function useChat() {
   const epoch = useRef(0)
   const [typing, setTyping] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [saveHint, setSaveHint] = useState(false)
+  const [saveHint, setSaveHint] = useState<{ src: string } | null>(null)
   const [liveMode, setLiveMode] = useState<'demo' | 'ai' | 'mock'>('demo')
 
   const update = useCallback((fn: (s: ChatState) => ChatState) => {
@@ -91,7 +92,7 @@ export function useChat() {
         update((s) => ({
           ...s,
           stage: 'editing_character',
-          messages: [...s.messages.filter((m) => m.type !== 'loading'), { id: uid(), role: 'ai', type: 'image', image, name: spec.name, prompt, tags: contributionTags(spec) }],
+          messages: [...s.messages.filter((m) => m.type !== 'loading'), { id: uid(), role: 'ai', type: 'image', image, name: spec.name, prompt, tags: contributionTags(spec), stickers: contributionStickers(spec) }],
         }))
         track(prevSpec ? 'image_updated' : 'image_shown', { mode: image.mode, arch: image.arch, exact: image.exact })
         await sleep(700)
@@ -150,6 +151,7 @@ export function useChat() {
       edits: sm.edits,
       firstIdea: first && first.type === 'text' ? shorten(first.text) : '',
       promptWords: buildPrompt(c.spec).split(/\s+/).length,
+      stickers: contributionStickers(c.spec),
     }
   }, [])
 
@@ -166,7 +168,10 @@ export function useChat() {
     await sleep(900)
     if (my !== epoch.current) return
     push({ id: uid(), role: 'ai', type: 'learned', summary: lessonSummary(), finale: true })
-    await sleep(1100)
+    await sleep(1000)
+    if (my !== epoch.current) return
+    if (img && img.type === 'image') push({ id: uid(), role: 'ai', type: 'storyboard', image: img.image, finale: true })
+    await sleep(1000)
     if (my !== epoch.current) return
     push({ id: uid(), role: 'ai', type: 'upsell', finale: true })
     setStage('next_project_offer')
@@ -244,11 +249,25 @@ export function useChat() {
     const img = [...ref.current.messages].reverse().find((m) => m.type === 'image')
     if (!img || img.type !== 'image') return
     track('save_image', { inApp: isInAppBrowser() })
-    if (isInAppBrowser()) return setSaveHint(true)
+    if (isInAppBrowser()) return setSaveHint({ src: img.image.src })
     try {
       await downloadHeroImage(img.image, ref.current.conv.spec.name ?? ref.current.conv.spec.kind?.nom ?? 'hero')
     } catch {
-      setSaveHint(true)
+      setSaveHint({ src: img.image.src })
+    }
+  }, [])
+
+  /** Карточка героя: картинка, имя и стикеры «что задал ребёнок» одним файлом. */
+  const downloadCard = useCallback(async () => {
+    const img = [...ref.current.messages].reverse().find((m) => m.type === 'image')
+    if (!img || img.type !== 'image') return
+    const input = { image: img.image, name: ref.current.conv.spec.name, stickers: contributionStickers(ref.current.conv.spec) }
+    track('save_card', { inApp: isInAppBrowser() })
+    try {
+      if (isInAppBrowser()) return setSaveHint({ src: await characterCardDataUrl(input) })
+      await downloadCharacterCard(input)
+    } catch {
+      setSaveHint({ src: img.image.src })
     }
   }, [])
 
@@ -277,9 +296,9 @@ export function useChat() {
     inputActive: INPUT_STAGES.includes(state.stage),
     saveHint,
     liveMode,
-    closeSaveHint: () => setSaveHint(false),
+    closeSaveHint: () => setSaveHint(null),
     parentOpen: state.stage === 'parent_offer',
-    actions: { send, restart, wantCartoon, download, backToHero, openParents, closeParents },
+    actions: { send, restart, wantCartoon, download, downloadCard, backToHero, openParents, closeParents },
     emptyConv: newConv,
   }
 }

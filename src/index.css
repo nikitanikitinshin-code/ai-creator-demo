@@ -41,5 +41,13 @@
 @keyframes blink { 50% { opacity: 0; } }
 .pb-safe { padding-bottom: max(0.625rem, env(safe-area-inset-bottom)); }
 @layer components {
-  .chip { @apply inline-flex items-center rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-1.5 text-[13.5px] leading-tight text-slate-600 transition duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.98]; }
+  .chip { @apply inline-flex min-h-[36px] items-center rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-1.5 text-[13.5px] leading-tight text-slate-600 transition duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.98] [@media(pointer:coarse)]:min-h-[44px]; }
 }
+
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+:focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+textarea:focus-visible { outline: none; }

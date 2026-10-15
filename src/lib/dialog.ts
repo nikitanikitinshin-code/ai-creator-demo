@@ -1,4 +1,4 @@
-import type { Arch, Chip, Conv, FeatureKey, Q, Spec } from '../types'
+import type { Arch, Chip, Conv, FeatureKey, Q, Spec, Sticker } from '../types'
 import { customKind, isEmptyParse, parse, parseHeroName, type Parsed } from './nlu'
 
 /**
@@ -503,3 +503,27 @@ export function contributionTags(s: Spec): string[] {
   if (s.style) out.push(s.style === 'cinema' ? 'стиль: кино' : 'стиль: мультфильм')
   return uniq(out).slice(0, 8)
 }
+
+const CAT_OF = (k: FeatureKey): Sticker['c'] => (SURFACE.includes(k) ? 'material' : HEAD.includes(k) ? 'head' : 'extra')
+
+/** Те же детали, но с категорией: из них строятся цветные стикеры «ты задал» и полоса прогресса. */
+export function contributionStickers(s: Spec): Sticker[] {
+  const out: Sticker[] = []
+  if (s.kind) out.push({ t: s.kind.nom, c: 'who' })
+  if (s.main) out.push({ t: s.main.name, c: 'color' })
+  if (s.accent && !Object.values(s.features).some((v) => v?.includes(s.accent!.name.slice(0, 4)))) out.push({ t: s.accent.name, c: 'color' })
+  for (const k of [...SURFACE, ...HEAD, ...EXTRA] as FeatureKey[]) if (s.features[k]) out.push({ t: s.features[k]!, c: CAT_OF(k) })
+  if (s.style) out.push({ t: s.style === 'cinema' ? 'стиль: кино' : 'стиль: мультфильм', c: 'style' })
+  const seen = new Set<string>()
+  return out.filter((x) => (seen.has(x.t) ? false : (seen.add(x.t), true))).slice(0, 10)
+}
+
+/** Слоты полосы «из чего собирается герой»: заполненные показывают слова ребёнка, пустые — подсказку. */
+export const SLOT_ORDER: { c: Sticker['c']; empty: string }[] = [
+  { c: 'who', empty: 'кто' },
+  { c: 'color', empty: 'цвет' },
+  { c: 'material', empty: 'материал' },
+  { c: 'head', empty: 'глаза и голова' },
+  { c: 'extra', empty: 'детали' },
+  { c: 'style', empty: 'стиль' },
+]
