@@ -27,6 +27,27 @@ export class GenerationError extends Error {
   }
 }
 
+/** Код доступа из ссылки (?code=…): запоминается на устройстве и отправляется на сервер в заголовке. */
+const CODE_KEY = 'aicreator.code'
+function accessCode(): string {
+  try {
+    const q = new URLSearchParams(location.search).get('code')
+    if (q) {
+      localStorage.setItem(CODE_KEY, q)
+      const url = new URL(location.href)
+      url.searchParams.delete('code')
+      history.replaceState(null, '', url)
+    }
+    return localStorage.getItem(CODE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+const authHeaders = (): Record<string, string> => {
+  const code = accessCode()
+  return code ? { 'x-access-code': code } : {}
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const LABEL = { dragon: 'Дракон', robot: 'Робот', warrior: 'Воин в доспехах', beast: 'Фантастический зверь', spirit: 'Волшебное существо' } as const
@@ -85,7 +106,7 @@ export interface LiveStatus {
 let statusCache: Promise<LiveStatus> | null = null
 export function getLiveStatus(force = false): Promise<LiveStatus> {
   if (!statusCache || force) {
-    statusCache = fetch('/api/status', { headers: { 'x-session-id': sessionId() } })
+    statusCache = fetch('/api/status', { headers: { 'x-session-id': sessionId(), ...authHeaders() } })
       .then((r) => (r.ok ? (r.json() as Promise<LiveStatus>) : { enabled: false }))
       .catch(() => ({ enabled: false }))
   }
@@ -98,7 +119,7 @@ export const liveProvider: HeroImageProvider = {
     try {
       res = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId() },
+        headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId(), ...authHeaders() },
         body: JSON.stringify({ mode: previous ? 'edit' : 'create', spec, prevSpec: previous?.spec, imageId: previous?.imageId }),
       })
     } catch {

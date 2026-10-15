@@ -113,6 +113,14 @@ async function main() {
   const r3 = await call(tot, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'tot-session-0003', 'x-forwarded-for': '7.7.7.7' })
   ok('общий потолок 2 картинки работает', r1.status === 200 && r2.status === 200 && r3.status === 429)
   ok('при доверии к туннелю адрес берётся из X-Forwarded-For', ((tot.limits as unknown as { ip: Map<string, number[]> }).ip.has('5.5.5.5')))
+  // код доступа
+  const locked = createApi({ FAL_KEY: 'test-key-1234567890', FAL_ACCESS_CODE: 'secret-code-77' }, { runner: fake, usageFile: null })
+  const before = calls
+  ok('без кода статус «закрыто»', (await call(locked, 'GET', '/api/status', undefined, sid)).json.enabled === false)
+  ok('с неверным кодом генерация закрыта', (await call(locked, 'POST', '/api/generate', { mode: 'create', spec }, { ...sid, 'x-access-code': 'nope' })).status === 403 && calls === before)
+  ok('с верным кодом статус «открыто»', (await call(locked, 'GET', '/api/status', undefined, { ...sid, 'x-access-code': 'secret-code-77' })).json.enabled === true)
+  ok('с верным кодом генерация работает', (await call(locked, 'POST', '/api/generate', { mode: 'create', spec }, { ...sid, 'x-access-code': 'secret-code-77' })).status === 200)
+  ok('код не попадает в ответ', !JSON.stringify((await call(locked, 'GET', '/api/status', undefined, { ...sid, 'x-access-code': 'secret-code-77' })).json).includes('secret-code'))
   // ссылка вместо data URI: скачиваем только с доменов fal
   const png = new Uint8Array([137, 80, 78, 71])
   const fakeFetch = (async () => new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })) as unknown as typeof fetch

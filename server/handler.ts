@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { renderHeroSvg, svgToDataUrl } from '../src/lib/art'
@@ -114,6 +114,14 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     return id
   }
 
+  /** Без кода доступа (если он задан) генерация закрыта: остаётся демо-режим. */
+  const codeOk = (req: IncomingMessage) => {
+    if (!cfg.accessCode) return true
+    const given = Buffer.from(String(req.headers['x-access-code'] ?? ''))
+    const need = Buffer.from(cfg.accessCode)
+    return given.length === need.length && timingSafeEqual(given, need)
+  }
+
   const sameOrigin = (req: IncomingMessage) => {
     const origin = req.headers.origin
     if (!origin) return true
@@ -126,6 +134,7 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
 
   async function generate(req: IncomingMessage, res: ServerResponse) {
     if (!cfg.enabled) return send(res, 503, { error: 'disabled', message: MESSAGES.disabled })
+    if (!codeOk(req)) return send(res, 403, { error: 'disabled', message: MESSAGES.disabled })
     if (!sameOrigin(req)) return send(res, 403, { error: 'bad_request', message: MESSAGES.bad_request })
     const sid = String(req.headers['x-session-id'] ?? '')
     if (!/^[a-z0-9-]{8,64}$/i.test(sid)) return send(res, 400, { error: 'bad_request', message: MESSAGES.bad_request })
@@ -213,7 +222,8 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     if (url === '/api/status' && req.method === 'GET') {
       const sid = String(req.headers['x-session-id'] ?? '')
       return send(res, 200, {
-        enabled: cfg.enabled,
+        enabled: cfg.enabled && codeOk(req),
+        locked: cfg.enabled && !codeOk(req) ? true : undefined,
         mock: cfg.mock || undefined,
         sessionLimit: cfg.sessionLimit,
         sessionRemaining: /^[a-z0-9-]{8,64}$/i.test(sid) ? Math.max(0, cfg.sessionLimit - limits.sessionUsed(sid)) : cfg.sessionLimit,

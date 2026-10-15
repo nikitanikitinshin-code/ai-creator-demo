@@ -1,0 +1,27 @@
+# Развёртывание на Render (https://render.com): New → Blueprint → выбрать этот репозиторий.
+# Секретные значения (FAL_KEY, FAL_ACCESS_CODE) вводятся в панели Render и в репозиторий не попадают.
+services:
+  - type: web
+    name: ai-creator
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: FAL_KEY
+        sync: false
+      - key: FAL_ACCESS_CODE
+        sync: false
+      - key: FAL_TRUST_PROXY
+        value: "true"
+      - key: FAL_DAILY_LIMIT
+        value: "30"
+      - key: FAL_TOTAL_LIMIT
+        value: "30"
+      - key: FAL_SESSION_LIMIT
+        value: "4"
+      - key: FAL_HOURLY_PER_IP
+        value: "8"

@@ -19,6 +19,8 @@ export interface ApiEnv {
   /** Оценка стоимости одной картинки в USD (для журнала расходов) */
   FAL_COST_PER_IMAGE?: string
   FAL_DEBUG?: string
+  /** Код доступа: если задан, генерация работает только по ссылке с ?code=… (защита от посторонних) */
+  FAL_ACCESS_CODE?: string
 }
 
 const num = (v: string | undefined, d: number) => {
@@ -46,6 +48,7 @@ export function readConfig(env: ApiEnv) {
     timeoutMs: num(env.FAL_TIMEOUT_MS, 70_000),
     costPerImage: num(env.FAL_COST_PER_IMAGE, 0.039),
     debug: env.FAL_DEBUG === 'true',
+    accessCode: (env.FAL_ACCESS_CODE ?? '').trim(),
   }
 }
 export type ApiConfig = ReturnType<typeof readConfig>
