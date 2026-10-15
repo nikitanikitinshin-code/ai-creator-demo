@@ -99,6 +99,10 @@ export function newSessionId() {
 
 export interface LiveStatus {
   enabled: boolean
+  /** почему генерация выключена (no_key, no_store, switched_off) */
+  reason?: string
+  /** false: сервер запретил подставлять готовые демо-картинки; undefined: сервера нет (статичная демо-версия) */
+  demoAllowed?: boolean
   mock?: boolean
   sessionLimit?: number
   sessionRemaining?: number
@@ -146,10 +150,15 @@ export const liveProvider: HeroImageProvider = {
   },
 }
 
-/** Выбирает провайдера: сервер с ключом или демо. */
-export async function pickProvider(): Promise<{ provider: HeroImageProvider; live: boolean }> {
+/**
+ * Выбирает режим: настоящая генерация через сервер, готовые демо-картинки (только для статичной демо-версии без сервера
+ * или если сервер явно разрешил) либо «недоступно». Демо-картинки никогда не подменяют настоящую генерацию молча.
+ */
+export async function pickProvider(): Promise<{ provider: HeroImageProvider; live: boolean; blocked: boolean }> {
   const st = await getLiveStatus()
-  return st.enabled ? { provider: liveProvider, live: true } : { provider: demoProvider, live: false }
+  if (st.enabled) return { provider: liveProvider, live: true, blocked: false }
+  const blocked = st.demoAllowed === false
+  return { provider: demoProvider, live: false, blocked }
 }
 
 /** Сохраняет изображение героя как PNG. */

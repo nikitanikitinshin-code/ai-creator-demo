@@ -251,6 +251,8 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     if (/^[a-z0-9-]{8,64}$/i.test(sid)) used = await store.sessionUsed(sid).catch(() => 0)
     send(res, 200, {
       enabled: cfg.enabled && codeOk(req),
+      reason: cfg.enabled ? undefined : cfg.reason,
+      demoAllowed: cfg.allowDemo,
       locked: cfg.enabled && !codeOk(req) ? true : undefined,
       mock: cfg.mock || undefined,
       sessionLimit: cfg.sessionLimit,

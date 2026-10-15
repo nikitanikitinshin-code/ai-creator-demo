@@ -21,6 +21,10 @@ export interface ApiEnv {
   FAL_DEBUG?: string
   /** Код доступа: если задан, генерация работает только по ссылке с ?code=… (защита от посторонних) */
   FAL_ACCESS_CODE?: string
+  /** Служебные: заполняются точкой входа Vercel */
+  FAL_NO_STORE?: string
+  /** Разрешено ли клиенту показывать готовые демо-картинки, когда генерация недоступна */
+  FAL_ALLOW_DEMO?: string
 }
 
 const num = (v: string | undefined, d: number) => {
@@ -31,9 +35,15 @@ const num = (v: string | undefined, d: number) => {
 export function readConfig(env: ApiEnv) {
   const mock = env.FAL_MOCK === '1' || env.FAL_MOCK === 'true'
   const hasKey = !!env.FAL_KEY && env.FAL_KEY.trim().length > 10 && !env.FAL_KEY.includes('your')
+  const switchedOff = env.FAL_ENABLED === 'false'
+  const noStore = !mock && env.FAL_NO_STORE === '1'
+  /** Почему генерация выключена: код для диагностики, без значений ключей. */
+  const reason = switchedOff ? 'switched_off' : !mock && !hasKey ? 'no_key' : noStore ? 'no_store' : undefined
   return {
     mock,
-    enabled: env.FAL_ENABLED !== 'false' && (mock || hasKey),
+    reason,
+    allowDemo: env.FAL_ALLOW_DEMO ? env.FAL_ALLOW_DEMO === 'true' : true,
+    enabled: !switchedOff && !noStore && (mock || hasKey),
     model: env.FAL_MODEL || 'fal-ai/nano-banana',
     editModel: env.FAL_EDIT_MODEL || 'fal-ai/nano-banana/edit',
     /** всего картинок в день на весь сервер */

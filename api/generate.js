@@ -387,9 +387,14 @@ var num = (v, d) => {
 function readConfig(env2) {
   const mock = env2.FAL_MOCK === "1" || env2.FAL_MOCK === "true";
   const hasKey = !!env2.FAL_KEY && env2.FAL_KEY.trim().length > 10 && !env2.FAL_KEY.includes("your");
+  const switchedOff = env2.FAL_ENABLED === "false";
+  const noStore = !mock && env2.FAL_NO_STORE === "1";
+  const reason = switchedOff ? "switched_off" : !mock && !hasKey ? "no_key" : noStore ? "no_store" : void 0;
   return {
     mock,
-    enabled: env2.FAL_ENABLED !== "false" && (mock || hasKey),
+    reason,
+    allowDemo: env2.FAL_ALLOW_DEMO ? env2.FAL_ALLOW_DEMO === "true" : true,
+    enabled: !switchedOff && !noStore && (mock || hasKey),
     model: env2.FAL_MODEL || "fal-ai/nano-banana",
     editModel: env2.FAL_EDIT_MODEL || "fal-ai/nano-banana/edit",
     /** всего картинок в день на весь сервер */
@@ -1160,6 +1165,8 @@ function createApi(env2, opts = {}) {
     if (/^[a-z0-9-]{8,64}$/i.test(sid)) used = await store2.sessionUsed(sid).catch(() => 0);
     send(res, 200, {
       enabled: cfg.enabled && codeOk(req),
+      reason: cfg.enabled ? void 0 : cfg.reason,
+      demoAllowed: cfg.allowDemo,
       locked: cfg.enabled && !codeOk(req) ? true : void 0,
       mock: cfg.mock || void 0,
       sessionLimit: cfg.sessionLimit,
@@ -1184,10 +1191,11 @@ function createApi(env2, opts = {}) {
 
 // serverless/entry.ts
 var env = { ...process.env, FAL_TRUST_PROXY: "true" };
+env.FAL_ALLOW_DEMO ??= "false";
 var store = upstashFromEnv(env);
 if (!store && env.FAL_MOCK !== "1") {
   console.error("[fal] Redis (Upstash) \u043D\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0451\u043D: \u0433\u0435\u043D\u0435\u0440\u0430\u0446\u0438\u044F \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u0430");
-  env.FAL_ENABLED = "false";
+  env.FAL_NO_STORE = "1";
 }
 var api = createApi(env, store ? { store } : { usageFile: null });
 function handler(req, res) {

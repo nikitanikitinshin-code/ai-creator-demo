@@ -15,8 +15,8 @@ const NOT_YET_AI = ['Видео, голос и мультфильм.', 'Реги
 const NOT_YET = ['Рисунок по произвольному запросу ребёнка.', 'Видео, голос и мультфильм.', 'Регистрация, оплата, личный кабинет.']
 
 /** Информация для родителей на старте: открывается по ссылке, не блокирует начало урока. */
-export function AboutModal({ open, onClose, liveMode = 'demo' }: { open: boolean; onClose: () => void; liveMode?: 'demo' | 'ai' | 'mock' }) {
-  const ai = liveMode === 'ai'
+export function AboutModal({ open, onClose, liveMode = 'demo' }: { open: boolean; onClose: () => void; liveMode?: 'demo' | 'ai' | 'mock' | 'off' }) {
+  const ai = liveMode === 'ai' || liveMode === 'off'
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()

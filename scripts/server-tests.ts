@@ -140,6 +140,19 @@ async function main() {
   const cb = calls
   ok('Redis недоступен → отказ без обращения к fal.ai', (await call(broken, 'POST', '/api/generate', { mode: 'create', spec }, sid)).status === 503 && calls === cb)
 
+  // причины выключенной генерации (для диагностики) и запрет молчаливой подмены демо-картинками
+  const stOf = async (env: Record<string, string>) => (await call(createApi(env, { runner: fake, usageFile: null }), 'GET', '/api/status', undefined, sid)).json
+  const sNoKey = await stOf({})
+  ok('нет ключа: reason=no_key', sNoKey.enabled === false && sNoKey.reason === 'no_key')
+  const sNoStore = await stOf({ FAL_KEY: 'test-key-1234567890', FAL_NO_STORE: '1' })
+  ok('нет Redis: reason=no_store', sNoStore.enabled === false && sNoStore.reason === 'no_store')
+  const sOff = await stOf({ FAL_KEY: 'test-key-1234567890', FAL_ENABLED: 'false' })
+  ok('выключено вручную: reason=switched_off', sOff.reason === 'switched_off')
+  const sOn = await stOf({ FAL_KEY: 'test-key-1234567890' })
+  ok('включено: reason нет, демо по умолчанию разрешено', sOn.enabled === true && sOn.reason === undefined && sOn.demoAllowed === true)
+  ok('FAL_ALLOW_DEMO=false → demoAllowed=false', (await stOf({ FAL_KEY: 'test-key-1234567890', FAL_ALLOW_DEMO: 'false' })).demoAllowed === false)
+  ok('в ответе статуса нет ключа', !JSON.stringify(sOn).includes('test-key'))
+
   // код доступа
   const locked = createApi({ FAL_KEY: 'test-key-1234567890', FAL_ACCESS_CODE: 'secret-code-77' }, { runner: fake, usageFile: null })
   const before = calls

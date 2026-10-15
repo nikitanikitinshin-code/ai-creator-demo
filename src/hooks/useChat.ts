@@ -30,7 +30,7 @@ export function useChat() {
   const [typing, setTyping] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saveHint, setSaveHint] = useState<{ src: string } | null>(null)
-  const [liveMode, setLiveMode] = useState<'demo' | 'ai' | 'mock'>('demo')
+  const [liveMode, setLiveMode] = useState<'demo' | 'ai' | 'mock' | 'off'>('demo')
 
   const update = useCallback((fn: (s: ChatState) => ChatState) => {
     ref.current = fn(ref.current)
@@ -73,13 +73,18 @@ export function useChat() {
    * Возвращает true, если новая картинка появилась в ленте.
    */
   const makeImage = useCallback(
-    async (prevSpec?: Spec, forceDemo = false): Promise<boolean> => {
+    async (prevSpec?: Spec): Promise<boolean> => {
       const my = epoch.current
       const spec = ref.current.conv.spec
       const prompt = buildPrompt(spec)
       const prevImg = prevSpec ? lastImage() : undefined
-      const { live } = await pickProvider()
-      const useLive = live && !forceDemo && (!prevSpec || prevImg?.image.mode === 'ai')
+      const { live, blocked } = await pickProvider()
+      if (blocked) {
+        track('generate_error', { code: 'disabled', edit: !!prevSpec })
+        await handleImageError(new GenerationError('disabled', 'Создание картинок сейчас недоступно. Попробуй зайти чуть позже.'), prevSpec)
+        return false
+      }
+      const useLive = live && (!prevSpec || prevImg?.image.mode === 'ai')
       setBusy(true)
       push({ id: uid(), role: 'ai', type: 'loading', variant: !useLive ? 'demo' : prevSpec ? 'edit' : 'ai' })
       try {
@@ -126,8 +131,9 @@ export function useChat() {
       update((s) => ({ ...s, conv: { ...s.conv, phase: 'collect', pending: null } }))
     }
     if (limit && !prevSpec) {
-      await say([`${err.message}\n\nЧтобы урок продолжился, покажу демо-иллюстрацию: это готовая картинка подходящего типа, а не рисунок ИИ.`])
-      await makeImage(undefined, true)
+      // сообщение о лимите показываем как есть: готовую картинку вместо настоящей мы не подставляем
+      update((s) => ({ ...s, conv: { ...s.conv, phase: 'collect', pending: null } }))
+      await say([err.message])
       return
     }
     const tail = err.code === 'moderation' && prevSpec ? 'Я вернул героя к прошлому описанию, картинка осталась прежней.' : prevSpec ? 'Запрос сохранён, но картинка осталась прежней.' : 'Напиши любое сообщение или нажми подсказку, и я попробую ещё раз.'
@@ -272,7 +278,7 @@ export function useChat() {
   }, [])
 
   useEffect(() => {
-    void getLiveStatus().then((st) => setLiveMode(!st.enabled ? 'demo' : st.mock ? 'mock' : 'ai'))
+    void getLiveStatus().then((st) => setLiveMode(!st.enabled ? (st.demoAllowed === false ? 'off' : 'demo') : st.mock ? 'mock' : 'ai'))
   }, [])
 
   // страницу закрыли посреди «генерации» или финала — продолжаем с того же места
