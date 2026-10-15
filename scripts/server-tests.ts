@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { createApi, toDataUri, type Runner } from '../server/handler'
 import { MemoryStore, UpstashStore } from '../server/store'
+import { normalizeKey } from '../server/config'
 import { buildCreatePrompt, buildEditPrompt, diffSpecs } from '../server/prompt'
 import { checkText, sanitizeSpec } from '../server/safety'
 import { newConv, respond } from '../src/lib/dialog'
@@ -152,6 +153,17 @@ async function main() {
   ok('включено: reason нет, демо по умолчанию разрешено', sOn.enabled === true && sOn.reason === undefined && sOn.demoAllowed === true)
   ok('FAL_ALLOW_DEMO=false → demoAllowed=false', (await stOf({ FAL_KEY: 'test-key-1234567890', FAL_ALLOW_DEMO: 'false' })).demoAllowed === false)
   ok('в ответе статуса нет ключа', !JSON.stringify(sOn).includes('test-key'))
+
+  // ключ, вставленный с типичными ошибками
+  const good = 'abcd1234-aaaa-bbbb-cccc-1234567890ab:secretsecretsecret'
+  ok('ключ с кавычками принимается', normalizeKey({ FAL_KEY: `"${good}"` }).key === good)
+  ok('ключ с пробелами и переводом строки принимается', normalizeKey({ FAL_KEY: `  ${good}\n` }).key === good)
+  ok('ключ с приставкой FAL_KEY= принимается', normalizeKey({ FAL_KEY: `FAL_KEY=${good}` }).key === good)
+  ok('альтернативное имя FAL_API_KEY принимается', normalizeKey({ FAL_API_KEY: good } as never).key === good)
+  ok('состояния: missing / empty / short / placeholder', [normalizeKey({}).state, normalizeKey({ FAL_KEY: '' }).state, normalizeKey({ FAL_KEY: 'abc' }).state, normalizeKey({ FAL_KEY: 'your-key-goes-here-123' }).state].join() === 'missing,empty,short,placeholder')
+  const dNo = await stOf({})
+  ok('диагностика: ключа нет → diag.key=missing, значений нет', (dNo.diag as { key: string }).key === 'missing')
+  ok('диагностика: нет Redis → diag.redis=false', ((await stOf({ FAL_KEY: good, FAL_NO_STORE: '1' })).diag as { redis: boolean }).redis === false)
 
   // код доступа
   const locked = createApi({ FAL_KEY: 'test-key-1234567890', FAL_ACCESS_CODE: 'secret-code-77' }, { runner: fake, usageFile: null })

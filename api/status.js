@@ -384,15 +384,28 @@ var num = (v, d) => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : d;
 };
+function normalizeKey(env2) {
+  const raw = env2.FAL_KEY ?? env2.FAL_API_KEY;
+  if (raw === void 0) return { key: "", state: "missing" };
+  const key = raw.trim().replace(/^FAL_KEY\s*=\s*/i, "").replace(/^["'`]+|["'`]+$/g, "").trim();
+  if (!key) return { key: "", state: "empty" };
+  if (key.length <= 10) return { key: "", state: "short" };
+  if (/your|example|placeholder/i.test(key)) return { key: "", state: "placeholder" };
+  return { key, state: "ok" };
+}
 function readConfig(env2) {
   const mock = env2.FAL_MOCK === "1" || env2.FAL_MOCK === "true";
-  const hasKey = !!env2.FAL_KEY && env2.FAL_KEY.trim().length > 10 && !env2.FAL_KEY.includes("your");
+  const k = normalizeKey(env2);
+  const hasKey = k.state === "ok";
   const switchedOff = env2.FAL_ENABLED === "false";
   const noStore = !mock && env2.FAL_NO_STORE === "1";
   const reason = switchedOff ? "switched_off" : !mock && !hasKey ? "no_key" : noStore ? "no_store" : void 0;
   return {
     mock,
     reason,
+    key: k.key,
+    keyState: k.state,
+    storeMissing: noStore,
     allowDemo: env2.FAL_ALLOW_DEMO ? env2.FAL_ALLOW_DEMO === "true" : true,
     enabled: !switchedOff && !noStore && (mock || hasKey),
     model: env2.FAL_MODEL || "fal-ai/nano-banana",
@@ -1042,7 +1055,7 @@ async function toDataUri(url, fetcher = fetch) {
 }
 function createApi(env2, opts = {}) {
   const cfg = readConfig(env2);
-  const secret = env2.FAL_KEY?.trim() ?? "";
+  const secret = cfg.key;
   const scrub = (m) => secret ? m.split(secret).join("***") : m;
   const store2 = opts.store ?? new MemoryStore(opts.usageFile === void 0 ? join(opts.dataDir ?? ".data", "fal-usage.json") : opts.usageFile);
   const signKey = createHmac("sha256", secret || "mock-secret").update("image-signature-v1").digest();
@@ -1056,7 +1069,7 @@ function createApi(env2, opts = {}) {
   let runner = opts.runner ?? null;
   const getRunner = async () => {
     if (runner) return runner;
-    runner = cfg.mock ? mockRunner : await falRunner(env2.FAL_KEY.trim());
+    runner = cfg.mock ? mockRunner : await falRunner(cfg.key);
     return runner;
   };
   const codeOk = (req) => {
@@ -1166,6 +1179,8 @@ function createApi(env2, opts = {}) {
     send(res, 200, {
       enabled: cfg.enabled && codeOk(req),
       reason: cfg.enabled ? void 0 : cfg.reason,
+      // подробности для диагностики: только состояния, без значений
+      diag: cfg.enabled ? void 0 : { key: cfg.keyState, redis: !cfg.storeMissing },
       demoAllowed: cfg.allowDemo,
       locked: cfg.enabled && !codeOk(req) ? true : void 0,
       mock: cfg.mock || void 0,

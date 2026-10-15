@@ -107,7 +107,7 @@ export async function toDataUri(url: string, fetcher: typeof fetch = fetch): Pro
 
 export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: string | null; dataDir?: string; fetcher?: typeof fetch; store?: LimitStore } = {}) {
   const cfg = readConfig(env)
-  const secret = env.FAL_KEY?.trim() ?? ''
+  const secret = cfg.key
   const scrub = (m: string) => (secret ? m.split(secret).join('***') : m)
   const store: LimitStore = opts.store ?? new MemoryStore(opts.usageFile === undefined ? join(opts.dataDir ?? '.data', 'fal-usage.json') : opts.usageFile)
   // подпись возвращённых картинок: так сервер без хранилища узнаёт собственные изображения при правках
@@ -123,7 +123,7 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
 
   const getRunner = async (): Promise<Runner> => {
     if (runner) return runner
-    runner = cfg.mock ? mockRunner : await falRunner(env.FAL_KEY!.trim())
+    runner = cfg.mock ? mockRunner : await falRunner(cfg.key)
     return runner
   }
 
@@ -252,6 +252,8 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     send(res, 200, {
       enabled: cfg.enabled && codeOk(req),
       reason: cfg.enabled ? undefined : cfg.reason,
+      // подробности для диагностики: только состояния, без значений
+      diag: cfg.enabled ? undefined : { key: cfg.keyState, redis: !cfg.storeMissing },
       demoAllowed: cfg.allowDemo,
       locked: cfg.enabled && !codeOk(req) ? true : undefined,
       mock: cfg.mock || undefined,

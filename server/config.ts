@@ -32,9 +32,21 @@ const num = (v: string | undefined, d: number) => {
   return Number.isFinite(n) && n > 0 ? n : d
 }
 
+/** Ключ из окружения: прощаем частые ошибки при вставке (пробелы, кавычки, приставка «FAL_KEY=») и альтернативное имя FAL_API_KEY. */
+export function normalizeKey(env: ApiEnv & { FAL_API_KEY?: string }): { key: string; state: 'ok' | 'missing' | 'empty' | 'short' | 'placeholder' } {
+  const raw = env.FAL_KEY ?? env.FAL_API_KEY
+  if (raw === undefined) return { key: '', state: 'missing' }
+  const key = raw.trim().replace(/^FAL_KEY\s*=\s*/i, '').replace(/^["'`]+|["'`]+$/g, '').trim()
+  if (!key) return { key: '', state: 'empty' }
+  if (key.length <= 10) return { key: '', state: 'short' }
+  if (/your|example|placeholder/i.test(key)) return { key: '', state: 'placeholder' }
+  return { key, state: 'ok' }
+}
+
 export function readConfig(env: ApiEnv) {
   const mock = env.FAL_MOCK === '1' || env.FAL_MOCK === 'true'
-  const hasKey = !!env.FAL_KEY && env.FAL_KEY.trim().length > 10 && !env.FAL_KEY.includes('your')
+  const k = normalizeKey(env)
+  const hasKey = k.state === 'ok'
   const switchedOff = env.FAL_ENABLED === 'false'
   const noStore = !mock && env.FAL_NO_STORE === '1'
   /** Почему генерация выключена: код для диагностики, без значений ключей. */
@@ -42,6 +54,9 @@ export function readConfig(env: ApiEnv) {
   return {
     mock,
     reason,
+    key: k.key,
+    keyState: k.state,
+    storeMissing: noStore,
     allowDemo: env.FAL_ALLOW_DEMO ? env.FAL_ALLOW_DEMO === 'true' : true,
     enabled: !switchedOff && !noStore && (mock || hasKey),
     model: env.FAL_MODEL || 'fal-ai/nano-banana',
