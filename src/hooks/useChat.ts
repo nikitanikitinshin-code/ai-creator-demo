@@ -85,7 +85,7 @@ export function useChat() {
         const image = await (useLive ? liveProvider : demoProvider).generate({
           prompt,
           spec,
-          previous: prevSpec ? { spec: prevSpec, imageId: prevImg?.image.id } : undefined,
+          previous: prevSpec ? { spec: prevSpec, imageSrc: prevImg?.image.src, imageSig: prevImg?.image.sig } : undefined,
         })
         if (my !== epoch.current) return false
         update((s) => ({

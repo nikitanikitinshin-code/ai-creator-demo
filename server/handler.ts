@@ -1,10 +1,10 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { renderHeroSvg, svgToDataUrl } from '../src/lib/art'
 import type { Spec } from '../src/types'
 import { type ApiEnv, readConfig } from './config'
-import { Limits } from './limits'
+import { type LimitStore, MemoryStore } from './store'
 import { buildCreatePrompt, buildEditPrompt, diffSpecs } from './prompt'
 import { sanitizeSpec } from './safety'
 
@@ -15,7 +15,7 @@ export interface RunResult {
 /** Вызов модели. В тестах подменяется, в работе использует официальный SDK fal.ai. */
 export type Runner = (model: string, input: Record<string, unknown>) => Promise<RunResult>
 
-const MAX_BODY = 24_000
+const MAX_BODY = 4_500_000 // как предел тела запроса у Vercel; прошлая картинка героя ≈ сотни КБ
 const FAL_HOST = /(^|\.)fal\.(media|ai|run)$/
 const MAX_IMAGE_CHARS = 8_000_000
 
@@ -33,10 +33,24 @@ const MESSAGES: Record<string, string> = {
   ip_limit: 'Сейчас слишком много попыток. Попробуй чуть позже.',
   daily_limit: 'На сегодня бесплатные картинки закончились. Попробуй завтра.',
   busy: 'Сейчас много желающих. Попробуй ещё раз через минуту.',
+  duplicate: 'Этот запрос уже обработан. Подожди немного.',
+  store: 'Создание картинок временно недоступно. Попробуй позже.',
   disabled: 'Создание картинок сейчас недоступно.',
   upstream: 'Не получилось создать картинку. Попробуй ещё раз.',
   timeout: 'Создание картинки заняло слишком много времени. Попробуй ещё раз.',
   bad_request: 'Не удалось обработать запрос.',
+}
+
+/** Тело запроса: на Vercel оно уже разобрано платформой, в обычном Node его нужно прочитать из потока. */
+async function bodyText(req: IncomingMessage): Promise<string> {
+  const pre = (req as IncomingMessage & { body?: unknown }).body
+  let text: string
+  if (pre === undefined || pre === null) text = await readBody(req)
+  else if (typeof pre === 'string') text = pre
+  else if (Buffer.isBuffer(pre)) text = pre.toString('utf8')
+  else text = JSON.stringify(pre)
+  if (text.length > MAX_BODY) throw new Error('too_large')
+  return text
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -91,27 +105,26 @@ export async function toDataUri(url: string, fetcher: typeof fetch = fetch): Pro
   }
 }
 
-export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: string | null; dataDir?: string; fetcher?: typeof fetch } = {}) {
+export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: string | null; dataDir?: string; fetcher?: typeof fetch; store?: LimitStore } = {}) {
   const cfg = readConfig(env)
   const secret = env.FAL_KEY?.trim() ?? ''
   const scrub = (m: string) => (secret ? m.split(secret).join('***') : m)
-  const limits = new Limits(opts.usageFile === undefined ? join(opts.dataDir ?? '.data', 'fal-usage.json') : opts.usageFile)
-  const images = new Map<string, { src: string; at: number }>()
+  const store: LimitStore = opts.store ?? new MemoryStore(opts.usageFile === undefined ? join(opts.dataDir ?? '.data', 'fal-usage.json') : opts.usageFile)
+  // подпись возвращённых картинок: так сервер без хранилища узнаёт собственные изображения при правках
+  const signKey = createHmac('sha256', secret || 'mock-secret').update('image-signature-v1').digest()
+  const sign = (src: string) => createHmac('sha256', signKey).update(src).digest('hex')
+  const verified = (src: unknown, sig: unknown) => {
+    if (typeof src !== 'string' || typeof sig !== 'string' || !src.startsWith('data:image/') || src.length > MAX_IMAGE_CHARS) return false
+    const a = Buffer.from(sign(src))
+    const b = Buffer.from(sig)
+    return a.length === b.length && timingSafeEqual(a, b)
+  }
   let runner: Runner | null = opts.runner ?? null
 
   const getRunner = async (): Promise<Runner> => {
     if (runner) return runner
     runner = cfg.mock ? mockRunner : await falRunner(env.FAL_KEY!.trim())
     return runner
-  }
-
-  const remember = (src: string) => {
-    const id = randomBytes(9).toString('hex')
-    const now = Date.now()
-    for (const [k, v] of images) if (now - v.at > 2 * 3_600_000) images.delete(k)
-    if (images.size >= 200) images.delete(images.keys().next().value as string)
-    images.set(id, { src, at: now })
-    return id
   }
 
   /** Без кода доступа (если он задан) генерация закрыта: остаётся демо-режим. */
@@ -141,7 +154,7 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
 
     let body: Record<string, unknown>
     try {
-      body = JSON.parse(await readBody(req))
+      body = JSON.parse(await bodyText(req))
     } catch {
       return send(res, 400, { error: 'bad_request', message: MESSAGES.bad_request })
     }
@@ -151,6 +164,9 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
       const code = spec.reason === 'invalid' || spec.reason === 'missing' ? 'bad_request' : 'moderation'
       return send(res, 422, { error: code, field: spec.field, message: MESSAGES[code] })
     }
+
+    const rid = String(req.headers['x-request-id'] ?? '')
+    if (!/^[a-z0-9-]{16,64}$/i.test(rid)) return send(res, 400, { error: 'bad_request', message: MESSAGES.bad_request })
 
     const mode = body.mode === 'edit' ? 'edit' : 'create'
     let prompt = buildCreatePrompt(spec.spec)
@@ -163,15 +179,15 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
       if (!prev.ok) return send(res, 422, { error: 'bad_request', message: MESSAGES.bad_request })
       const changes = diffSpecs(prev.spec, spec.spec)
       if (!changes.length) return send(res, 400, { error: 'bad_request', message: MESSAGES.bad_request })
-      const base = typeof body.imageId === 'string' ? images.get(body.imageId) : undefined
-      if (base) {
+      const pi = body.prevImage as { src?: unknown; sig?: unknown } | undefined
+      if (pi && verified(pi.src, pi.sig)) {
         // прошлая версия героя передаётся как есть: так внешний вид сохраняется
         prompt = buildEditPrompt(changes, spec.spec)
         model = cfg.editModel
-        input.image_urls = [base.src]
+        input.image_urls = [pi.src as string]
         usedEdit = true
       }
-      // если сервер уже забыл картинку (перезапуск), собираем героя заново по полному описанию
+      // если подписанной картинки нет (или подпись не совпала), собираем героя заново по полному описанию
     }
     input.prompt = prompt
     if (cfg.mock) input.__spec = spec.spec
@@ -179,7 +195,20 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     // за доверенным туннелем все запросы приходят с 127.0.0.1, настоящий адрес посетителя — в X-Forwarded-For
     const fwd = cfg.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : ''
     const ip = fwd || (req.socket.remoteAddress ?? 'unknown')
-    const slot = limits.reserve(ip, sid, cfg)
+    // повтор того же запроса (двойной клик, повторная отправка) не тратит картинку
+    try {
+      if (!(await store.once(rid))) return send(res, 409, { error: 'duplicate', message: MESSAGES.duplicate })
+    } catch {
+      return send(res, 503, { error: 'disabled', message: MESSAGES.store })
+    }
+    let slot
+    try {
+      slot = await store.reserve(ip, sid, cfg)
+    } catch (e) {
+      // если счётчики недоступны, лучше отказать, чем потратить деньги без контроля
+      console.error('[store] недоступно:', e instanceof Error ? e.message : 'unknown')
+      return send(res, 503, { error: 'disabled', message: MESSAGES.store })
+    }
     if (!slot.ok) return send(res, 429, { error: slot.code, message: MESSAGES[slot.code] })
 
     let refund = false
@@ -195,14 +224,13 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
         // пустой ответ чаще всего значит, что модель отказалась рисовать: не считаем это ошибкой сервера
         return send(res, 422, { error: 'blocked', message: MESSAGES.blocked })
       }
-      const id = remember(src)
       return send(res, 200, {
-        id,
         src,
+        sig: sign(src),
         model,
         mock: cfg.mock || undefined,
         edited: usedEdit,
-        sessionRemaining: Math.max(0, cfg.sessionLimit - limits.sessionUsed(sid)),
+        sessionRemaining: Math.max(0, cfg.sessionLimit - (await store.sessionUsed(sid).catch(() => 0))),
         ...(cfg.debug ? { debugPrompt: prompt } : {}),
       })
     } catch (e) {
@@ -212,23 +240,27 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
       console.error('[fal] ошибка генерации:', timeout ? 'timeout' : e instanceof Error ? scrub(`${e.name}: ${e.message}`).slice(0, 300) : 'unknown')
       return send(res, timeout ? 504 : 502, { error: timeout ? 'timeout' : 'upstream', message: MESSAGES[timeout ? 'timeout' : 'upstream'] })
     } finally {
-      limits.release(ip, sid, refund)
+      await store.release(ip, sid, refund).catch(() => {})
     }
   }
 
   /** Обработчик для Node-серверов и Vite: пути вида /api/status и /api/generate. */
+  const status = async (req: IncomingMessage, res: ServerResponse) => {
+    const sid = String(req.headers['x-session-id'] ?? '')
+    let used = 0
+    if (/^[a-z0-9-]{8,64}$/i.test(sid)) used = await store.sessionUsed(sid).catch(() => 0)
+    send(res, 200, {
+      enabled: cfg.enabled && codeOk(req),
+      locked: cfg.enabled && !codeOk(req) ? true : undefined,
+      mock: cfg.mock || undefined,
+      sessionLimit: cfg.sessionLimit,
+      sessionRemaining: Math.max(0, cfg.sessionLimit - used),
+    })
+  }
+
   const middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const url = (req.url ?? '').split('?')[0]
-    if (url === '/api/status' && req.method === 'GET') {
-      const sid = String(req.headers['x-session-id'] ?? '')
-      return send(res, 200, {
-        enabled: cfg.enabled && codeOk(req),
-        locked: cfg.enabled && !codeOk(req) ? true : undefined,
-        mock: cfg.mock || undefined,
-        sessionLimit: cfg.sessionLimit,
-        sessionRemaining: /^[a-z0-9-]{8,64}$/i.test(sid) ? Math.max(0, cfg.sessionLimit - limits.sessionUsed(sid)) : cfg.sessionLimit,
-      })
-    }
+    if (url === '/api/status' && req.method === 'GET') return void status(req, res)
     if (url === '/api/generate' && req.method === 'POST') {
       void generate(req, res).catch((e) => {
         console.error('[api] необработанная ошибка:', e instanceof Error ? e.message : e)
@@ -240,5 +272,5 @@ export function createApi(env: ApiEnv, opts: { runner?: Runner; usageFile?: stri
     next()
   }
 
-  return { middleware, config: cfg, limits }
+  return { middleware, config: cfg, store }
 }

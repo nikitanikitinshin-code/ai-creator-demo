@@ -1,7 +1,9 @@
 /* Проверки серверной части без сети и без расходов: подменяем вызов fal.ai заглушкой. */
 import { EventEmitter } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { createApi, toDataUri, type Runner } from '../server/handler'
+import { MemoryStore, UpstashStore } from '../server/store'
 import { buildCreatePrompt, buildEditPrompt, diffSpecs } from '../server/prompt'
 import { checkText, sanitizeSpec } from '../server/safety'
 import { newConv, respond } from '../src/lib/dialog'
@@ -52,7 +54,7 @@ const fake: Runner = async (model, input) => {
 function call(api: ReturnType<typeof createApi>, method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
   return new Promise<{ status: number; json: Record<string, unknown> }>((resolve) => {
     const req = new EventEmitter() as IncomingMessage & EventEmitter
-    Object.assign(req, { method, url, headers: { host: 'localhost:5173', ...headers }, socket: { remoteAddress: '1.2.3.4' }, destroy() {} })
+    Object.assign(req, { method, url, headers: { host: 'localhost:5173', 'x-request-id': randomUUID(), ...headers }, socket: { remoteAddress: '1.2.3.4' }, destroy() {} })
     let out = ''
     const res: { statusCode: number; headersSent: boolean; setHeader(): void; end(s: string): void } = {
       statusCode: 200, headersSent: false,
@@ -80,12 +82,12 @@ async function main() {
   const sent = lastCall!
   ok('создание: вызывается основная модель', good.status === 200 && sent.model === 'fal-ai/nano-banana' && calls === 1)
   ok('строгая безопасность и data URI', sent.input.safety_tolerance === '1' && sent.input.sync_mode === true)
-  const edit = await call(api, 'POST', '/api/generate', { mode: 'edit', spec: next, prevSpec: spec, imageId: good.json.id }, sid)
+  const edit = await call(api, 'POST', '/api/generate', { mode: 'edit', spec: next, prevSpec: spec, prevImage: { src: good.json.src, sig: good.json.sig } }, sid)
   const sent2 = lastCall!
   ok('правка: модель edit и прошлая картинка', edit.status === 200 && sent2.model === 'fal-ai/nano-banana/edit' && Array.isArray(sent2.input.image_urls))
   const over = await call(api, 'POST', '/api/generate', { mode: 'create', spec }, sid)
   ok('лимит на урок (2) срабатывает', over.status === 429 && over.json.error === 'session_limit' && calls === 2)
-  const noChange = await call(api, 'POST', '/api/generate', { mode: 'edit', spec, prevSpec: spec, imageId: good.json.id }, { 'x-session-id': 'another-session-02' })
+  const noChange = await call(api, 'POST', '/api/generate', { mode: 'edit', spec, prevSpec: spec, prevImage: { src: good.json.src, sig: good.json.sig } }, { 'x-session-id': 'another-session-02' })
   ok('правка без изменений отклоняется', noChange.status === 400)
   // дневной лимит
   for (const s of ['sess-aaaa-0001', 'sess-aaaa-0002']) await call(api, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': s })
@@ -100,7 +102,7 @@ async function main() {
   const fail = await call(api2, 'POST', '/api/generate', { mode: 'create', spec }, sid)
   console.error = orig
   ok('ошибка апстрима: короткое сообщение без подробностей', fail.status === 502 && !JSON.stringify(fail.json).includes('secret'))
-  ok('после ошибки лимит урока возвращается', api2.limits.sessionUsed('test-session-0001') === 0)
+  ok('после ошибки лимит урока возвращается', (await api2.store.sessionUsed('test-session-0001')) === 0)
 
   // пустой ответ модели = отказ рисовать
   const empty = createApi({ FAL_KEY: 'test-key-1234567890' }, { runner: async () => ({ images: [], description: 'I cannot' }), usageFile: null })
@@ -112,7 +114,32 @@ async function main() {
   const r2 = await call(tot, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'tot-session-0002', 'x-forwarded-for': '6.6.6.6' })
   const r3 = await call(tot, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'tot-session-0003', 'x-forwarded-for': '7.7.7.7' })
   ok('общий потолок 2 картинки работает', r1.status === 200 && r2.status === 200 && r3.status === 429)
-  ok('при доверии к туннелю адрес берётся из X-Forwarded-For', ((tot.limits as unknown as { ip: Map<string, number[]> }).ip.has('5.5.5.5')))
+  ok('при доверии к туннелю адрес берётся из X-Forwarded-For', (((tot.store as MemoryStore).limits as unknown as { ip: Map<string, number[]> }).ip.has('5.5.5.5')))
+  // подписанные картинки и повторные запросы
+  const sg = createApi({ FAL_KEY: 'test-key-1234567890', FAL_SESSION_LIMIT: '9', FAL_HOURLY_PER_IP: '99' }, { runner: fake, usageFile: null })
+  const rid = 'req-0000-0000-0001'
+  const c1 = await call(sg, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'sig-session-0001', 'x-request-id': rid })
+  const c2 = await call(sg, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'sig-session-0001', 'x-request-id': rid })
+  ok('повтор того же запроса отклоняется и не тратит картинку', c1.status === 200 && c2.status === 409 && c2.json.error === 'duplicate')
+  const callsBefore = calls
+  await call(sg, 'POST', '/api/generate', { mode: 'edit', spec: next, prevSpec: spec, prevImage: { src: c1.json.src, sig: 'f'.repeat(64) } }, { 'x-session-id': 'sig-session-0001' })
+  ok('чужая подпись: правка превращается в создание заново (чужая картинка не уходит в модель)', calls === callsBefore + 1 && !('image_urls' in lastCall!.input) && lastCall!.model === 'fal-ai/nano-banana')
+  await call(sg, 'POST', '/api/generate', { mode: 'edit', spec: next, prevSpec: spec, prevImage: { src: c1.json.src, sig: c1.json.sig } }, { 'x-session-id': 'sig-session-0001' })
+  ok('верная подпись: прошлая картинка уходит в edit-модель', lastCall!.model === 'fal-ai/nano-banana/edit' && (lastCall!.input.image_urls as string[])[0] === c1.json.src)
+  ok('без идентификатора запроса отказ', (await call(sg, 'POST', '/api/generate', { mode: 'create', spec }, { 'x-session-id': 'sig-session-0002', 'x-request-id': 'short' })).status === 400)
+  // тело уже разобрано платформой (Vercel)
+  const parsed = await new Promise<{ status: number; json: Record<string, unknown> }>((resolve) => {
+    const req = new EventEmitter() as IncomingMessage & EventEmitter
+    Object.assign(req, { method: 'POST', url: '/api/generate', body: { mode: 'create', spec }, headers: { host: 'x', 'x-session-id': 'par-session-0001', 'x-request-id': randomUUID() }, socket: { remoteAddress: '9.9.9.9' }, destroy() {} })
+    const res = { statusCode: 200, headersSent: false, setHeader() {}, end(t: string) { resolve({ status: res.statusCode, json: JSON.parse(t) }) } }
+    sg.middleware(req, res as unknown as ServerResponse, () => resolve({ status: 0, json: {} }))
+  })
+  ok('тело, разобранное платформой, принимается', parsed.status === 200)
+  // недоступное хранилище: отказ, а не расходы без контроля
+  const broken = createApi({ FAL_KEY: 'test-key-1234567890' }, { runner: fake, store: { reserve: async () => { throw new Error('down') }, release: async () => {}, sessionUsed: async () => 0, once: async () => true } })
+  const cb = calls
+  ok('Redis недоступен → отказ без обращения к fal.ai', (await call(broken, 'POST', '/api/generate', { mode: 'create', spec }, sid)).status === 503 && calls === cb)
+
   // код доступа
   const locked = createApi({ FAL_KEY: 'test-key-1234567890', FAL_ACCESS_CODE: 'secret-code-77' }, { runner: fake, usageFile: null })
   const before = calls

@@ -9,8 +9,8 @@ import { renderHeroSvg, svgToDataUrl } from './art'
 export interface GenerateRequest {
   prompt: string
   spec: Spec
-  /** правка уже созданного героя: прошлая версия описания и идентификатор прошлой картинки */
-  previous?: { spec: Spec; imageId?: string }
+  /** правка уже созданного героя: прошлая версия описания и прошлая картинка с подписью сервера */
+  previous?: { spec: Spec; imageSrc?: string; imageSig?: string }
 }
 
 export interface HeroImageProvider {
@@ -19,7 +19,7 @@ export interface HeroImageProvider {
 
 export type GenerationErrorCode =
   | 'moderation' | 'blocked' | 'session_limit' | 'ip_limit' | 'daily_limit' | 'busy'
-  | 'disabled' | 'upstream' | 'timeout' | 'network' | 'bad_request'
+  | 'disabled' | 'upstream' | 'timeout' | 'network' | 'bad_request' | 'duplicate'
 
 export class GenerationError extends Error {
   constructor(public code: GenerationErrorCode, message: string, public field?: string) {
@@ -119,8 +119,14 @@ export const liveProvider: HeroImageProvider = {
     try {
       res = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId(), ...authHeaders() },
-        body: JSON.stringify({ mode: previous ? 'edit' : 'create', spec, prevSpec: previous?.spec, imageId: previous?.imageId }),
+        // x-request-id уникален для каждого нажатия: повтор того же запроса сервер не выполняет второй раз
+        headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId(), 'x-request-id': crypto.randomUUID(), ...authHeaders() },
+        body: JSON.stringify({
+          mode: previous ? 'edit' : 'create',
+          spec,
+          prevSpec: previous?.spec,
+          prevImage: previous?.imageSrc && previous.imageSig ? { src: previous.imageSrc, sig: previous.imageSig } : undefined,
+        }),
       })
     } catch {
       throw new GenerationError('network', 'Нет связи с сервером. Проверь интернет и попробуй ещё раз.')
@@ -130,7 +136,7 @@ export const liveProvider: HeroImageProvider = {
     const arch = spec.kind?.arch ?? 'beast'
     return {
       src: data.src,
-      id: data.id,
+      sig: data.sig,
       mock: !!data.mock,
       mode: 'ai',
       arch,
