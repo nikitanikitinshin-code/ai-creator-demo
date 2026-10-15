@@ -155,15 +155,15 @@ async function main() {
   ok('в ответе статуса нет ключа', !JSON.stringify(sOn).includes('test-key'))
 
   // ключ, вставленный с типичными ошибками
-  const good = 'abcd1234-aaaa-bbbb-cccc-1234567890ab:secretsecretsecret'
-  ok('ключ с кавычками принимается', normalizeKey({ FAL_KEY: `"${good}"` }).key === good)
-  ok('ключ с пробелами и переводом строки принимается', normalizeKey({ FAL_KEY: `  ${good}\n` }).key === good)
-  ok('ключ с приставкой FAL_KEY= принимается', normalizeKey({ FAL_KEY: `FAL_KEY=${good}` }).key === good)
-  ok('альтернативное имя FAL_API_KEY принимается', normalizeKey({ FAL_API_KEY: good } as never).key === good)
+  const goodKey = 'abcd1234-aaaa-bbbb-cccc-1234567890ab:secretsecretsecret'
+  ok('ключ с кавычками принимается', normalizeKey({ FAL_KEY: `"${goodKey}"` }).key === goodKey)
+  ok('ключ с пробелами и переводом строки принимается', normalizeKey({ FAL_KEY: `  ${goodKey}\n` }).key === goodKey)
+  ok('ключ с приставкой FAL_KEY= принимается', normalizeKey({ FAL_KEY: `FAL_KEY=${goodKey}` }).key === goodKey)
+  ok('альтернативное имя FAL_API_KEY принимается', normalizeKey({ FAL_API_KEY: goodKey } as never).key === goodKey)
   ok('состояния: missing / empty / short / placeholder', [normalizeKey({}).state, normalizeKey({ FAL_KEY: '' }).state, normalizeKey({ FAL_KEY: 'abc' }).state, normalizeKey({ FAL_KEY: 'your-key-goes-here-123' }).state].join() === 'missing,empty,short,placeholder')
   const dNo = await stOf({})
   ok('диагностика: ключа нет → diag.key=missing, значений нет', (dNo.diag as { key: string }).key === 'missing')
-  ok('диагностика: нет Redis → diag.redis=false', ((await stOf({ FAL_KEY: good, FAL_NO_STORE: '1' })).diag as { redis: boolean }).redis === false)
+  ok('диагностика: нет Redis → diag.redis=false', ((await stOf({ FAL_KEY: goodKey, FAL_NO_STORE: '1' })).diag as { redis: boolean }).redis === false)
 
   // код доступа
   const locked = createApi({ FAL_KEY: 'test-key-1234567890', FAL_ACCESS_CODE: 'secret-code-77' }, { runner: fake, usageFile: null })
